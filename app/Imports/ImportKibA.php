@@ -211,7 +211,6 @@ class ImportKibA implements ToCollection, WithStartRow, WithChunkReading, Should
                 ];
 
                 $idDetailAsset = DB::pg('asset_detail_tanah')->insertGetId($detailAsset);
-                $detailAsset['id'] = $idDetailAsset;
 
                 // inset AssetHistory
                 $assetHistory = [
@@ -233,7 +232,7 @@ class ImportKibA implements ToCollection, WithStartRow, WithChunkReading, Should
                     "upb_id" => $upb->id,
                     "keterangan" => "Pengadaan Migrasi Tanah",
                     "details" => json_encode($detailAsset),
-                    "status" => 3,
+                    "status" => "pembukuan",
                 ];
 
                 $history = DB::pg('asset_history')->insertGetId($assetHistory);
@@ -257,7 +256,7 @@ class ImportKibA implements ToCollection, WithStartRow, WithChunkReading, Should
                     "created_at" => $this->parseTanggalExcel($mapped['tanggal_perolehan'] ?? null),
                     "updated_at" => null,
                     "status" => "pembukuan",
-                    "masa_manfaat" => 0,
+                    "masa_manfaat" => null,
                     "is_per_unit" => false,
                     "nilai_per_unit" => 0,
                 ];
@@ -271,21 +270,37 @@ class ImportKibA implements ToCollection, WithStartRow, WithChunkReading, Should
         }
     }
 
-    // fungsi hitung triwulan dan tahun
-    public function hitungTriwulanDanTahun($tanggal)
+    public function hitungTriwulanDanTahun($date)
     {
-        if (empty($tanggal)) {
+        $date = Carbon::parse($this->parseTanggalExcel($date));
+        $month = $date->month;
+        $year = $date->year;
+
+        if ($month >= 1 && $month <= 3) {
             return [
-                "triwulan" => null,
-                "tahun" => null
+                'text_triwulan' => 'I',
+                'triwulan' => 1,
+                'tahun' => $year,
+            ];
+        } else if ($month >= 4 && $month <= 6) {
+            return [
+                'text_triwulan' => 'II',
+                'triwulan' => 2,
+                'tahun' => $year,
+            ];
+        } else if ($month >= 7 && $month <= 9) {
+            return [
+                'text_triwulan' => 'III',
+                'triwulan' => 3,
+                'tahun' => $year,
+            ];
+        } else {
+            return [
+                'text_triwulan' => 'IV',
+                'triwulan' => 4,
+                'tahun' => $year,
             ];
         }
-        $tahun = date('Y', strtotime($tanggal));
-        $triwulan = ceil((date('n', strtotime($tanggal)) + 2) / 3);
-        return [
-            "triwulan" => $triwulan,
-            "tahun" => $tahun
-        ];
     }
 
     public static function afterImport(AfterImport $event)
