@@ -233,7 +233,7 @@ class ImportKibA implements ToCollection, WithStartRow, WithChunkReading, Should
                     "upb_id" => $upb->id,
                     "keterangan" => "Pengadaan Migrasi Tanah",
                     "details" => json_encode($detailAsset),
-                    "status" => null,
+                    "status" => 3,
                 ];
 
                 $history = DB::pg('asset_history')->insertGetId($assetHistory);
