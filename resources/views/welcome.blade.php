@@ -59,6 +59,18 @@
     <h2 class="text-center mb-4 text-primary fw-bold">📊 Import Excel Aset Daerah</h2>
     <p class="text-center text-muted mb-5">Silakan pilih kategori KIB (A–H) lalu unggah file Excel dengan drag & drop.</p>
 
+    @if(session('success'))
+        <div class="alert alert-success">
+            {{ session('success') }}
+        </div>
+    @endif
+
+    @if (session('error'))
+        <div class="alert alert-danger">
+            {{ session('error') }}
+        </div>
+    @endif
+
     <!-- Tabs Kategori -->
     <ul class="nav nav-tabs mb-3" id="kibTab" role="tablist">
       <li class="nav-item" role="presentation">

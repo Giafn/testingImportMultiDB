@@ -9,9 +9,12 @@ use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithStartRow;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
+use Maatwebsite\Excel\Events\AfterImport;
+use Maatwebsite\Excel\Concerns\WithEvents;
+use Illuminate\Support\Facades\Http;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
-class ImportKibA implements ToCollection, WithStartRow, WithChunkReading, ShouldQueue
+class ImportKibA implements ToCollection, WithStartRow, WithChunkReading, ShouldQueue, WithEvents
 {   
     private function parseTanggalExcel($value)
     {
@@ -282,6 +285,22 @@ class ImportKibA implements ToCollection, WithStartRow, WithChunkReading, Should
         return [
             "triwulan" => $triwulan,
             "tahun" => $tahun
+        ];
+    }
+
+    public static function afterImport(AfterImport $event)
+    {
+        // auto hit API setelah semua selesai
+        Http::post('https://n8n.giafn.my.id/webhook/success-import', [
+            'status' => 'success',
+            'message' => 'Import KIB A selesai',
+        ]);
+    }
+
+    public function registerEvents(): array
+    {
+        return [
+            AfterImport::class => [self::class, 'afterImport'],
         ];
     }
 
