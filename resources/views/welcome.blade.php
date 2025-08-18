@@ -114,16 +114,26 @@
         </form>
       </div>
       <div class="tab-pane fade" id="kibB" role="tabpanel">
-        <div class="drop-zone" id="dropB">
-          <p>📂 Tarik & letakkan file Excel KIB B di sini atau klik untuk memilih</p>
-          <input type="file" name="fileB" hidden accept=".xlsx,.xls">
-        </div>
+        <form action="{{ route('import') }}" method="POST" enctype="multipart/form-data">
+            @csrf
+            <div class="drop-zone" id="dropB">
+              <p>📂 Tarik & letakkan file Excel KIB B di sini atau klik untuk memilih</p>
+              <input type="file" name="file" hidden accept=".xlsx,.xls">
+            </div>
+            <input type="hidden" name="kategori" value="B">
+            <button type="submit" class="btn btn-primary mt-3">Import</button>
+        </form>
       </div>
       <div class="tab-pane fade" id="kibC" role="tabpanel">
-        <div class="drop-zone" id="dropC">
-          <p>📂 Tarik & letakkan file Excel KIB C di sini atau klik untuk memilih</p>
-          <input type="file" name="fileC" hidden accept=".xlsx,.xls">
-        </div>
+         <form action="{{ route('import') }}" method="POST" enctype="multipart/form-data">
+            @csrf
+            <div class="drop-zone" id="dropC">
+              <p>📂 Tarik & letakkan file Excel KIB C di sini atau klik untuk memilih</p>
+              <input type="file" name="fileC" hidden accept=".xlsx,.xls">
+            </div>
+            <input type="hidden" name="kategori" value="C">
+            <button type="submit" class="btn btn-primary mt-3">Import</button>
+        </form>
       </div>
       <div class="tab-pane fade" id="kibD" role="tabpanel">
         <div class="drop-zone" id="dropD">
