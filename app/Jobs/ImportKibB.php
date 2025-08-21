@@ -43,7 +43,7 @@ class ImportKibB implements ShouldQueue
                 $rowIndex++;
 
                 // skip baris 1–7
-                if ($rowIndex < 7) {
+                if ($rowIndex < 6) {
                     continue;
                 }
 
@@ -69,5 +69,7 @@ class ImportKibB implements ShouldQueue
             'status' => 'success',
             'message' => 'Import KIB B Dimulai',
         ]);
+
+        unlink($this->filePath);
     }
 }
