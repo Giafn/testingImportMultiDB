@@ -65,6 +65,9 @@ class ImportKibB implements ShouldQueue
 
         $reader->close();
 
-        // unlink($this->filePath);
+        Http::post('https://n8n.giafn.my.id/webhook/success-import', [
+            'status' => 'success',
+            'message' => 'Import KIB B Dimulai',
+        ]);
     }
 }

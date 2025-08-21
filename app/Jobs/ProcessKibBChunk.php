@@ -25,12 +25,23 @@ class ProcessKibBChunk implements ShouldQueue
 
     public function handle()
     {
+        $firstNumberRow = null;
+        $lastNumberRow = null;
         foreach ($this->rows as $cells) {
+            if ($firstNumberRow === null) {
+                $firstNumberRow = $cells[0];
+            }
             $data = $this->formatData($cells);
             if ($data) {
                 $this->storeData($data);
             }
+            $lastNumberRow = $cells[0];
         }
+
+        Http::post('https://n8n.giafn.my.id/webhook/success-import', [
+            'status' => 'success',
+            'message' => 'Import Chunk KIB B selesai ' . $firstNumberRow . ' sampai ' . $lastNumberRow
+        ]);
     }
 
     private function storeData($mapped) {
