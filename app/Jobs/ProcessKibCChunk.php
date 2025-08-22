@@ -12,7 +12,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
-class ProcessKibBChunk implements ShouldQueue
+class ProcessKibCChunk implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -32,22 +32,47 @@ class ProcessKibBChunk implements ShouldQueue
 
         try {
             $db->beginTransaction();
-            foreach ($this->rows as $cells) {
-                if ($firstNumberRow === null) {
-                    $firstNumberRow = $cells[0];
+            $countGroup = 0;
+            foreach ($this->rows as $group) {
+                $assetId = null;
+                $upbId = null;
+                $groupCapital = [];
+                foreach ($group as $cells) {
+                    if ($firstNumberRow === null) {
+                        $firstNumberRow = $cells[0];
+                    }
+                    $data = $this->formatData($cells);
+                    if ($data['is_parent']) {
+                        $result = $this->storeData($data);
+                        $assetId = $result['assetId'];
+                        $upbId = $result['upbId'];
+                    } else {
+                        $countGroup++;
+                        $groupCapital[$assetId][] = $data;
+                    }
+                    $lastNumberRow = $cells[0];
                 }
-                $data = $this->formatData($cells);
-                if ($data) {
-                    $this->storeData($data);
+                if (count($groupCapital) > 0) {
+                    $sortedAsc = collect($groupCapital[$assetId])
+                        ->sortBy(fn($item) => \Carbon\Carbon::parse($item['tanggal_perubahan']))
+                        ->toArray();
+                    $asset = DB::pg('assets')->where('id', $assetId)->first();
+                    $details = DB::pg('asset_detail_gedung')->where('assets_id', $assetId)->first();
+                    $nilaiAsset = $asset->jumlah_harga;
+                    $masaManfaat = $asset->masa_manfaat;
+                    foreach ($sortedAsc as $item) {
+                        $nilaiAsset += $item['harga'];
+                        $masaManfaat += (int) $item['masa_manfaat'];
+                        $this->storeKapitalisasi($asset, $details, $item, $upbId, $nilaiAsset, $masaManfaat);
+                    }
                 }
-                $lastNumberRow = $cells[0];
             }
             $db->commit();
         } catch (\Exception $e) {
             $db->rollBack();
             Http::post('https://n8n.giafn.my.id/webhook/success-import', [
-                'status' => 'success',
-                'message' => 'error : ' . $e->getMessage()
+                'status' => 'error',
+                'message' => $e->getMessage()
             ]);
             throw $e;
         }
@@ -116,7 +141,7 @@ class ProcessKibBChunk implements ShouldQueue
         $asset = [
             "asset_dokumen_id" => $documentId,
             "status" => 3,
-            "jenis_asset_id" => 2,
+            "jenis_asset_id" => 3,
             "urusan_id" => $urusan->id,
             "bidang_id" => $bidang->id,
             "unit_id" => $unit->id,
@@ -138,7 +163,7 @@ class ProcessKibBChunk implements ShouldQueue
             "jumlah_harga" => $mapped['harga'],
             "kondisi" => 1,
             "spesifikasi_lainnya" => null,
-            "keterangan_tambahan" => null,
+            "keterangan_tambahan" => $mapped['keterangan'],
             "foto" => null,
             "kecamatan" => null,
             "kelurahan_desa" => null,
@@ -170,44 +195,18 @@ class ProcessKibBChunk implements ShouldQueue
         
         $assetId = DB::pg('assets')->insertGetId($asset);
         $asset['id'] = $assetId;
-
-        $bahanId = DB::pg('master_bahan_aset')->where('nama', $mapped['bahan'])->first();
-        if (empty($bahanId)) {
-            $bahan = [
-                "nama" => $mapped['bahan'],
-                "is_permanent" => 0
-            ];
-            $bahanId = DB::pg('master_bahan_aset')->insertGetId($bahan);
-        } else {
-            $bahanId = $bahanId->id;
-        }
     
         // insert detail asset
         $detailAsset = [
             "assets_id" => $assetId,
             "masa_manfaat" => $mapped['masa_manfaat'],
-            "sisa_masa_manfaat" => null,
-            "merek_tipe" => $mapped['merk'] . '/' . $mapped['type'],
-            "nomor_polisi" => $mapped['polisi'],
-            "nomor_bpkb" => $mapped['bpkb'],
-            "nama_pemilik" => null,
-            "tipe_kendaraan" => null,
-            "jenis_kendaraan" => null,
-            "model_kendaraan" => null,
-            "tahun_pembuatan" => null,
-            "isi_silinder" => $mapped['cc'],
-            "nomor_rangka_nik_vin" => $mapped['rangka'],
-            "nomor_mesin" => $mapped['mesin'],
-            "warna" => null,
-            "warna_tnkb" => null,
-            "deleted_at" => null,
-            "deleted_by" => null,
-            "created_at" => null,
-            "updated_at" => null,
-            "bahan_kendaraan" => $bahanId,
+            "jumlah_lantai" => (int) $mapped['details']['jumlah_lantai'],
+            "luas_gedung" => $mapped['details']['luas_gedung'] == "NULL" ? 0 : (float) $mapped['details']['luas_gedung'],
+            "titik_kordinat" => null,
+            "status_kepemilikan" => null,
         ];
     
-        DB::pg('asset_detail_peralatan')->insertGetId($detailAsset);
+        DB::pg('asset_detail_gedung')->insertGetId($detailAsset);
     
         // inset AssetHistory
         $assetHistory = [
@@ -227,7 +226,7 @@ class ProcessKibBChunk implements ShouldQueue
             "jenis_after_id" => null,
             "asset_reklasifikasi_id" => null,
             "upb_id" => $upb->id,
-            "keterangan" => "Pengadaan Migrasi PM",
+            "keterangan" => "Pengadaan Migrasi Gedung",
             "details" => json_encode($detailAsset),
             "status" => "pembukuan",
         ];
@@ -259,45 +258,96 @@ class ProcessKibBChunk implements ShouldQueue
     
         DB::pg('asset_snapshots')->insert($assetSnapshot);
         $this->createPenyusutan($assetId, "Inisiasi Penyusutan Migrasi PM", $mapped['tanggal_perolehan']);
+
+        return [
+            'assetId' => $assetId,
+            'upbId' => $upb->id
+        ];
+    }
+
+    private function storeKapitalisasi($asset, $details, $data, $upbId, $nilaiSekarang, $masaManfaatSekarang) {
+        // tambah masa manfaat ke asset
+        $penambahanMasaManfaat = $data['masa_manfaat'] ? (int) $data['masa_manfaat'] : 0;
+        DB::pg('assets')->where('id', $asset->id)->update([
+            'masa_manfaat' => $masaManfaatSekarang,
+            'jumlah_harga' => $nilaiSekarang
+        ]);
+
+        // insert asset history
+        $assetHistoryId = DB::pg('asset_history')->insertGetId([
+            'asset_id'      => $asset->id,
+            'upb_id'        => $upbId,
+            'type'          => 'rehab',
+            'json_before'   => json_encode([]), // simpan sebagai JSON
+            'json_after'    => json_encode([
+                'spesisfikasi_nama_barang' => $asset->spesifikasi_nama_barang,
+                'sub_sub_rincian_id'       => $asset->sub_sub_rincian_id,
+                'nominal'                  => $asset->jumlah_harga + $data['harga'],
+                'keterangan'               => $data['keterangan'],
+                'jenis_asset_id'           => $asset->jenis_asset_id,
+                'kode_register'            => $asset->kode_register,
+                'satuan'                   => $asset->satuan,
+                'kondisi'                  => $asset->kondisi,
+                'is_ditemukan'             => $asset->is_ditemukan,
+                'masa_manfaat'             => $masaManfaatSekarang,
+            ]),
+            'pengurangan'   => 0,
+            'penambahan'    => $data['harga'],
+            'sisa'          => $nilaiSekarang,
+            'created_by'    => 1,
+            'details'       => json_encode($details), // kalau kolom details JSON
+            'keterangan'    => 'Penambahan kapitalisasi rehab - ' . ($data['keterangan'] ?: ''),
+            'status'        => "pembukuan",
+            'created_at'    => $data['tanggal_perubahan'],
+            'updated_at'    => $data['tanggal_perubahan'],
+        ]);
+
+        // // Insert ke asset_kapitalisasi
+        DB::pg('asset_kapitalisasi')->insert([
+            'asset_id'   => $asset->id,
+            'nominal'    => $data['harga'],
+            'file'       => null,
+            'keterangan' => 'Inputan penambahan nilai rehab - ' . ($data['keterangan'] ?: ''),
+            'rehab_date' => $data['tanggal_perubahan'],
+            'type'       => 'rehab',
+            'created_at' => $data['tanggal_perubahan'],
+            'updated_at' => $data['tanggal_perubahan'],
+        ]);
+        $penyusutan = $this->updatePenyusutan($asset->id, $data['harga'], $penambahanMasaManfaat, "Rehab/penambahan kapitalisasi Rp. " . number_format($data['harga'], 0, ',', '.'), $data['tanggal_perubahan']);
     }
 
     private function formatData($cells) 
     {
         try {
             return [
-                    'no' => $cells[0] ?? null,
-                    'id_barang' => $cells[1] ?? null,
-                    'tahun' => $cells[2] ?? null,
-                    'kode_skpd' => $cells[7] ?? null,
+                    'is_parent' => $cells[21] !== '' ? false : true,
+                    'id_barang' => $cells[0] ?? null,
+                    'tahun' => $cells[3] ?? null,
+                    'kode_skpd' => $cells[4] . '.' . $cells[5] . '.' . $cells[6] . '.' . $cells[7] ?? null,
                     'nama_skpd' => $cells[8] ?? null,
                     'kelompok_barang' => $cells[14] ?? null,
-                    'kode_barang' => $cells[17] ?? null,
-                    'jenis_barang' => $cells[18] ?? null,
-                    'no_register' => $cells[19] ?? null,
-                    'merk' => $cells[20] ?? null,
-                    'type' => $cells[21] ?? null,
-                    'cc' => $cells[22] ?? null,
-                    'bahan' => $cells[23] ?? null,
-                    'tanggal_perolehan' => $this->formatDate($cells[24] ?? null),
-                    'pabrik' => $cells[25] ?? null,
-                    'rangka' => $cells[26] ?? null,
-                    'mesin' => $cells[27] ?? null,
-                    'polisi' => $cells[28] ?? null,
-                    'bpkb' => $cells[29] ?? null,
+                    'kode_barang' => $cells[9] . '.' . $cells[10] . '.' . $cells[11] . '.' . $cells[12] . '.' . $cells[13] . '.' . $cells[15] . '.' . $cells[16] ?? null,
+                    'jenis_barang' => $cells[17] ?? null,
+                    'no_register' => $cells[18] ?? null,
+                    'tanggal_perolehan' => $this->formatDate($cells[19] ?? null),
+                    'tanggal_pembukuan' => $this->formatDate($cells[20] ?? null),
+                    'tanggal_perubahan' => $this->formatDate($cells[21] ?? null),
                     'asal_usul' => $cells[30] ?? null,
                     'kondisi' => $cells[31] ?? null,
-                    'masa_manfaat' => $cells[32] ?? null,
+                    'masa_manfaat' => $cells[40] ?? null,
                     'harga' => $cells[33] ?? null,
-                    'keterangan' => $cells[34] ?? null,
-                    'akumulasi_1_januari_2023' => $cells[35] ?? null,
-                    'penyusutan_semester_1' => $cells[36] ?? null,
-                    'penyusutan_semester_2' => $cells[37] ?? null,
-                    'akumulasi_31_desember_2023' => $cells[38] ?? null,
-                    'nilai_buku' => $cells[39] ?? null,
-                    'sisa_masa_manfaat' => $cells[40] ?? null,
+                    'penambahan' => $cells[34] ?? null,
+                    'harga_saat_ini' => $cells[35] ?? null,
+                    'nilai_buku_2024' => $cells[38] ?? null,
+                    'keterangan' => $cells[41] ?? null,
+                    'is_beton' => $cells[24] !== '' ? true : false,
+                    'details' => [
+                        "jumlah_lantai" => $cells[23] == "Bertingkat" ? 2 : 1,
+                        "luas_gedung" => $cells[25] ?? null,
+                        "titik_kordinat" => null,
+                    ]
                 ];
         } catch (\Exception $e) {
-            dd($e);
             return null;
         }
     }
@@ -414,4 +464,86 @@ class ProcessKibBChunk implements ShouldQueue
             'message' => 'Berhasil menambah penyusutan'
         ];
     }
+
+    private function updatePenyusutan($idAsset, $penambahanNilai, $penambahanMasaManfaat, $keterangan, $customCreatedAt = null)
+    {
+        $penambahanNilai = (int) $penambahanNilai;
+
+        $asset = DB::pg('assets')
+            ->join('sub_sub_rincian_objek_assets', 'sub_sub_rincian_objek_assets.id', '=', 'assets.sub_sub_rincian_id')
+            ->where('assets.id', $idAsset)
+            ->whereIn('jenis_asset_id', [2, 3, 4])
+            ->select('assets.*', 'sub_sub_rincian_objek_assets.kode_kelompok', 'sub_sub_rincian_objek_assets.kode_jenis')
+            ->first();
+
+        if (!$asset) {
+            return true;
+        }
+
+
+        $penyusutanTerakhir = DB::pg('asset_penyusutan')
+            ->where('asset_id', $idAsset)
+            ->orderByDesc('tanggal_selesai')
+            ->first();
+
+        if ($penyusutanTerakhir) {
+            $tglSelesaiAwal = Carbon::parse($penyusutanTerakhir->tanggal_selesai);
+
+            $tanggalSelesaiBaru = $customCreatedAt
+                ? Carbon::parse($customCreatedAt)->endOfMonth()
+                : Carbon::now()->endOfMonth();
+
+            // update record terakhir
+            DB::pg('asset_penyusutan')
+                ->where('id', $penyusutanTerakhir->id)
+                ->update([
+                    'tanggal_selesai' => $tanggalSelesaiBaru,
+                    'updated_at'      => now(),
+                ]);
+
+            // hitung ulang
+            $tanggalBeli = Carbon::parse($asset->tanggal_pembelian);
+            $diff = $tanggalBeli->diffInMonths(Carbon::now());
+
+            $penguranganSampaiSekarang = $penyusutanTerakhir->depresiasi_perbulan * $diff;
+            $nilaiBukuBaru = $penyusutanTerakhir->nilai_buku - $penguranganSampaiSekarang;
+            $cek = $nilaiBukuBaru + $penambahanNilai;
+
+            if ($cek > 0) {
+                if ($penambahanNilai) {
+                    $nilaiBukuBaru += $penambahanNilai;
+                }
+
+                $masaManfaat = $asset->masa_manfaat;
+                $sisaMasaManfaat = $masaManfaat - $diff;
+
+                $depresiasiPerbulan = $nilaiBukuBaru / $sisaMasaManfaat;
+
+                $tanggalMulai = $customCreatedAt
+                    ? Carbon::parse($customCreatedAt)->startOfMonth()
+                    : Carbon::now()->startOfMonth();
+                $tanggalSelesai = $customCreatedAt
+                    ? Carbon::parse($customCreatedAt)->addMonths($sisaMasaManfaat)->endOfMonth()
+                    : Carbon::now()->addMonths($sisaMasaManfaat)->endOfMonth();
+
+                $penyusutanId = DB::pg('asset_penyusutan')->insertGetId([
+                    'asset_id'                 => $idAsset,
+                    'nilai_buku'               => $nilaiBukuBaru - $depresiasiPerbulan,
+                    'depresiasi_perbulan'      => $depresiasiPerbulan,
+                    'masa_manfaat'             => $masaManfaat,
+                    'tanggal_mulai'            => $tanggalMulai,
+                    'tanggal_selesai'          => $tanggalSelesai,
+                    'penambahan_nilai'         => $penambahanNilai,
+                    'penambahan_masa_manfaat'  => $penambahanMasaManfaat,
+                    'nilai_perolehan'          => (int) $penyusutanTerakhir->nilai_perolehan + $penambahanNilai,
+                    'keterangan'               => $keterangan,
+                    'jenis_asset'              => $asset->kode_jenis,
+                    'type_asset'               => $asset->kode_kelompok == 3 ? 'asset_tetap' : 'asset_lainnya',
+                    'created_at'               => now(),
+                    'updated_at'               => now(),
+                ]);
+            }
+        }
+    }
+
 }

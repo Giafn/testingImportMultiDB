@@ -129,7 +129,7 @@
             @csrf
             <div class="drop-zone" id="dropC">
               <p>📂 Tarik & letakkan file Excel KIB C di sini atau klik untuk memilih</p>
-              <input type="file" name="fileC" hidden accept=".xlsx,.xls">
+              <input type="file" name="file" hidden accept=".xlsx,.xls">
             </div>
             <input type="hidden" name="kategori" value="C">
             <button type="submit" class="btn btn-primary mt-3">Import</button>
