@@ -91,12 +91,6 @@
       <li class="nav-item" role="presentation">
         <button class="nav-link" id="kibF-tab" data-bs-toggle="tab" data-bs-target="#kibF" type="button" role="tab">KIB F</button>
       </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="kibG-tab" data-bs-toggle="tab" data-bs-target="#kibG" type="button" role="tab">KIB G</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="kibH-tab" data-bs-toggle="tab" data-bs-target="#kibH" type="button" role="tab">KIB H</button>
-      </li>
     </ul>
 
     <!-- Tab Content -->
@@ -136,10 +130,15 @@
         </form>
       </div>
       <div class="tab-pane fade" id="kibD" role="tabpanel">
-        <div class="drop-zone" id="dropD">
-          <p>📂 Tarik & letakkan file Excel KIB D di sini atau klik untuk memilih</p>
-          <input type="file" name="fileD" hidden accept=".xlsx,.xls">
-        </div>
+        <form action="{{ route('import') }}" method="POST" enctype="multipart/form-data">
+            @csrf
+            <div class="drop-zone" id="dropD">
+              <p>📂 Tarik & letakkan file Excel KIB D di sini atau klik untuk memilih</p>
+              <input type="file" name="file" hidden accept=".xlsx,.xls">
+            </div>
+            <input type="hidden" name="kategori" value="D">
+            <button type="submit" class="btn btn-primary mt-3">Import</button>
+        </form>
       </div>
       <div class="tab-pane fade" id="kibE" role="tabpanel">
         <div class="drop-zone" id="dropE">
@@ -151,18 +150,6 @@
         <div class="drop-zone" id="dropF">
           <p>📂 Tarik & letakkan file Excel KIB F di sini atau klik untuk memilih</p>
           <input type="file" name="fileF" hidden accept=".xlsx,.xls">
-        </div>
-      </div>
-      <div class="tab-pane fade" id="kibG" role="tabpanel">
-        <div class="drop-zone" id="dropG">
-          <p>📂 Tarik & letakkan file Excel KIB G di sini atau klik untuk memilih</p>
-          <input type="file" name="fileG" hidden accept=".xlsx,.xls">
-        </div>
-      </div>
-      <div class="tab-pane fade" id="kibH" role="tabpanel">
-        <div class="drop-zone" id="dropH">
-          <p>📂 Tarik & letakkan file Excel KIB H di sini atau klik untuk memilih</p>
-          <input type="file" name="fileH" hidden accept=".xlsx,.xls">
         </div>
       </div>
     </div>

@@ -53,6 +53,8 @@ class MigrateController extends Controller
             // path full
             $fullPath = storage_path('app/private/' . $path);
             ImportKibC::dispatch($fullPath);
+        } else if ($request->kategori === 'D') {
+            
         }
 
         return redirect()->back()->with('success', 'Data Mulai Di Import Harap Tunggu kami akan kabari lewat Telegram');
