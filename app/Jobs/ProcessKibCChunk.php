@@ -79,7 +79,7 @@ class ProcessKibCChunk implements ShouldQueue
 
         Http::post('https://n8n.giafn.my.id/webhook/success-import', [
             'status' => 'success',
-            'message' => 'Import Chunk KIB B selesai ' . $firstNumberRow . ' sampai ' . $lastNumberRow
+            'message' => 'Import Chunk KIB C selesai ' . $firstNumberRow . ' sampai ' . $lastNumberRow
         ]);
     }
 
@@ -257,6 +257,7 @@ class ProcessKibCChunk implements ShouldQueue
         ];
     
         DB::pg('asset_snapshots')->insert($assetSnapshot);
+        
         $this->createPenyusutan($assetId, "Inisiasi Penyusutan Migrasi PM", $mapped['tanggal_perolehan']);
 
         return [
@@ -266,7 +267,6 @@ class ProcessKibCChunk implements ShouldQueue
     }
 
     private function storeKapitalisasi($asset, $details, $data, $upbId, $nilaiSekarang, $masaManfaatSekarang) {
-        // tambah masa manfaat ke asset
         $penambahanMasaManfaat = $data['masa_manfaat'] ? (int) $data['masa_manfaat'] : 0;
         DB::pg('assets')->where('id', $asset->id)->update([
             'masa_manfaat' => $masaManfaatSekarang,
@@ -302,6 +302,8 @@ class ProcessKibCChunk implements ShouldQueue
             'updated_at'    => $data['tanggal_perubahan'],
         ]);
 
+        $penyusutan = $this->updatePenyusutan($asset->id, $data['harga'], $penambahanMasaManfaat, "Rehab/penambahan kapitalisasi Rp. " . number_format($data['harga'], 0, ',', '.'), $data['tanggal_perubahan']);
+
         // // Insert ke asset_kapitalisasi
         DB::pg('asset_kapitalisasi')->insert([
             'asset_id'   => $asset->id,
@@ -313,7 +315,6 @@ class ProcessKibCChunk implements ShouldQueue
             'created_at' => $data['tanggal_perubahan'],
             'updated_at' => $data['tanggal_perubahan'],
         ]);
-        $penyusutan = $this->updatePenyusutan($asset->id, $data['harga'], $penambahanMasaManfaat, "Rehab/penambahan kapitalisasi Rp. " . number_format($data['harga'], 0, ',', '.'), $data['tanggal_perubahan']);
     }
 
     private function formatData($cells) 
@@ -465,85 +466,234 @@ class ProcessKibCChunk implements ShouldQueue
         ];
     }
 
+    // update penyusutan
     private function updatePenyusutan($idAsset, $penambahanNilai, $penambahanMasaManfaat, $keterangan, $customCreatedAt = null)
     {
-        $penambahanNilai = (int) $penambahanNilai;
+        $db = DB::connection('pgsql');
+        try {
+            $db->beginTransaction();
 
-        $asset = DB::pg('assets')
-            ->join('sub_sub_rincian_objek_assets', 'sub_sub_rincian_objek_assets.id', '=', 'assets.sub_sub_rincian_id')
-            ->where('assets.id', $idAsset)
-            ->whereIn('jenis_asset_id', [2, 3, 4])
-            ->select('assets.*', 'sub_sub_rincian_objek_assets.kode_kelompok', 'sub_sub_rincian_objek_assets.kode_jenis')
-            ->first();
-
-        if (!$asset) {
-            return true;
-        }
-
-
-        $penyusutanTerakhir = DB::pg('asset_penyusutan')
-            ->where('asset_id', $idAsset)
-            ->orderByDesc('tanggal_selesai')
-            ->first();
-
-        if ($penyusutanTerakhir) {
-            $tglSelesaiAwal = Carbon::parse($penyusutanTerakhir->tanggal_selesai);
-
+            $penambahanNilai = (int) $penambahanNilai;
+            $asset = DB::pg('assets')
+                ->join('sub_sub_rincian_objek_assets', 'sub_sub_rincian_objek_assets.id', '=', 'assets.sub_sub_rincian_id')
+                ->where('assets.id', $idAsset)
+                ->whereIn('jenis_asset_id', [2, 3, 4])
+                ->select('assets.*', 'sub_sub_rincian_objek_assets.kode_kelompok', 'sub_sub_rincian_objek_assets.kode_jenis')
+                ->first();
+    
+            $nilaiPerolehan = (int) DB::pg('asset_history')->where('asset_id', $idAsset)->orderBy('created_at', 'asc')
+                ->where('type', 'pengadaan')
+                ->select('penambahan')
+                ->first()->penambahan;
+                
+            
+            $totalKapitalisasiAwal = DB::pg('asset_kapitalisasi')->where('asset_id', $idAsset)->sum('nominal');
+            $totalKapitalisasi = $totalKapitalisasiAwal + $penambahanNilai;
+    
+            $cekAkumulasi = $this->getAkumulasiPenyusutan($idAsset, $customCreatedAt ?? date('Y-m-d'));
+    
+            $penyusutanTerakhir = DB::pg('asset_penyusutan')
+                ->where('asset_id', $idAsset)
+                ->orderByDesc('tanggal_selesai')
+                ->first();
+            
             $tanggalSelesaiBaru = $customCreatedAt
                 ? Carbon::parse($customCreatedAt)->endOfMonth()
                 : Carbon::now()->endOfMonth();
-
-            // update record terakhir
+    
             DB::pg('asset_penyusutan')
                 ->where('id', $penyusutanTerakhir->id)
                 ->update([
                     'tanggal_selesai' => $tanggalSelesaiBaru,
                     'updated_at'      => now(),
                 ]);
+    
+            $penyusutanTerakhir = DB::pg('asset_penyusutan')
+                ->where('asset_id', $idAsset)
+                ->orderByDesc('tanggal_selesai')
+                ->first();
+            
+            // hitung nilai buku dan masa manfaat dalam bulan yang baru menjadi acuan depresiasi perbulan
+            $tanggalBeli = Carbon::parse($asset->tanggal_pembelian)->endOfMonth();
+            $diff = $tanggalBeli->diffInMonths(Carbon::create($customCreatedAt)->endOfMonth());
 
-            // hitung ulang
-            $tanggalBeli = Carbon::parse($asset->tanggal_pembelian);
-            $diff = $tanggalBeli->diffInMonths(Carbon::now());
+            // pastikan semua angka dalam string agar cocok dengan BCMath
+            $akumulasiPenyusutanBulanSebelumnya = bcsub((string)$cekAkumulasi, (string)$penyusutanTerakhir->depresiasi_perbulan, 8);
 
-            $penguranganSampaiSekarang = $penyusutanTerakhir->depresiasi_perbulan * $diff;
-            $nilaiBukuBaru = $penyusutanTerakhir->nilai_buku - $penguranganSampaiSekarang;
+            $nilaiBukuBulanSebelumnya = bcsub(
+                bcadd((string)$nilaiPerolehan, (string)$totalKapitalisasiAwal, 8),
+                (string)$akumulasiPenyusutanBulanSebelumnya,
+                8
+            );
+
+            $nilaiPerolehanUntukHitungPenyusutanBaru = bcadd(
+                (string)$nilaiBukuBulanSebelumnya,
+                (string)$penambahanNilai,
+                8
+            );
+
+            $TotalMasaManfaat = bcadd((string)$penyusutanTerakhir->masa_manfaat, (string)$penambahanMasaManfaat, 8);
+            $sisaMasaManfaat  = bcsub((string)$TotalMasaManfaat, (string)$diff, 8);
+            $sisaMasaManfaat  = (string)round((float)$sisaMasaManfaat);
+
+            // bagi dengan presisi tinggi
+            $depresiasiPerbulan = bcdiv((string)$nilaiPerolehanUntukHitungPenyusutanBaru, (string)$sisaMasaManfaat, 8);
+
+            $akumulasiPenyusutan = bcadd((string)$akumulasiPenyusutanBulanSebelumnya, (string)$depresiasiPerbulan, 8);
+
+            $nilaiBukuBaru = bcsub(
+                bcadd((string)$nilaiPerolehan, (string)$totalKapitalisasi, 8),
+                (string)$akumulasiPenyusutan,
+                8
+            );
+
             $cek = $nilaiBukuBaru + $penambahanNilai;
-
             if ($cek > 0) {
-                if ($penambahanNilai) {
-                    $nilaiBukuBaru += $penambahanNilai;
-                }
-
                 $masaManfaat = $asset->masa_manfaat;
                 $sisaMasaManfaat = $masaManfaat - $diff;
-
-                $depresiasiPerbulan = $nilaiBukuBaru / $sisaMasaManfaat;
-
-                $tanggalMulai = $customCreatedAt
-                    ? Carbon::parse($customCreatedAt)->startOfMonth()
-                    : Carbon::now()->startOfMonth();
-                $tanggalSelesai = $customCreatedAt
-                    ? Carbon::parse($customCreatedAt)->addMonths($sisaMasaManfaat)->endOfMonth()
-                    : Carbon::now()->addMonths($sisaMasaManfaat)->endOfMonth();
-
-                $penyusutanId = DB::pg('asset_penyusutan')->insertGetId([
-                    'asset_id'                 => $idAsset,
-                    'nilai_buku'               => $nilaiBukuBaru - $depresiasiPerbulan,
-                    'depresiasi_perbulan'      => $depresiasiPerbulan,
-                    'masa_manfaat'             => $masaManfaat,
-                    'tanggal_mulai'            => $tanggalMulai,
-                    'tanggal_selesai'          => $tanggalSelesai,
-                    'penambahan_nilai'         => $penambahanNilai,
-                    'penambahan_masa_manfaat'  => $penambahanMasaManfaat,
-                    'nilai_perolehan'          => (int) $penyusutanTerakhir->nilai_perolehan + $penambahanNilai,
-                    'keterangan'               => $keterangan,
-                    'jenis_asset'              => $asset->kode_jenis,
-                    'type_asset'               => $asset->kode_kelompok == 3 ? 'asset_tetap' : 'asset_lainnya',
-                    'created_at'               => now(),
-                    'updated_at'               => now(),
+    
+                $tanggalMulai = $customCreatedAt ? Carbon::parse($customCreatedAt)->startOfMonth() : Carbon::now()->startOfMonth();
+                $tanggalSelesai = $customCreatedAt ? Carbon::parse($customCreatedAt)->addMonths($sisaMasaManfaat)->endOfMonth() : Carbon::now()->addMonths($sisaMasaManfaat)->endOfMonth();
+        
+                DB::pg('asset_penyusutan')->insertGetId([
+                    'asset_id'                => $idAsset,
+                    'nilai_buku'              => $nilaiBukuBaru,
+                    'depresiasi_perbulan'     => $depresiasiPerbulan,
+                    'masa_manfaat'            => (int) $masaManfaat,
+                    'tanggal_mulai'           => $tanggalMulai,
+                    'tanggal_selesai'         => $tanggalSelesai,
+                    'penambahan_nilai'        => $penambahanNilai,
+                    'penambahan_masa_manfaat' => $penambahanMasaManfaat,
+                    'nilai_perolehan'         => $penyusutanTerakhir->nilai_perolehan + $penambahanNilai,
+                    'keterangan'              => $keterangan,
+                    'jenis_asset'             => $asset->kode_jenis,
+                    'type_asset'              => $asset->kode_kelompok == 3 ? 'asset_tetap' : 'asset_lainnya',
+                    'created_at'              => now(),
+                    'updated_at'              => now(),
                 ]);
             }
+            $db->commit();
+        } catch (\Exception $e) {
+            $db->rollBack();
+            throw $e;
         }
+
+        return [
+            'status' => 'success',
+            'message' => 'Berhasil memperbarui penyusutan'
+        ];
+    }
+
+    // format list penyusutan
+    private function formatListPenyusutan($penyusutans, $tahun = null, $now = null)
+    {
+        if (!$tahun) {
+            $tahun = Carbon::now()->year;
+        }
+
+        if (!$now) {
+            $now = Carbon::now()->startOfMonth();
+        } else {
+            $now = Carbon::parse($now)->startOfMonth();
+        }
+
+        $arr = [];
+        $first = true;
+
+        foreach ($penyusutans as $key => $penyusutan) {
+            // pastikan semua angka string untuk BCMath
+            $nilaiBuku = (string)$penyusutan->nilai_buku;
+            $penguranganPerBulan = (string)$penyusutan->depresiasi_perbulan;
+
+            $tanggalMulai   = Carbon::parse($penyusutan->tanggal_mulai)->startOfMonth();
+            $tanggalSelesai = Carbon::parse($penyusutan->tanggal_selesai)->endOfMonth();
+
+            $data = [];
+            $nilaiSisa = $nilaiBuku;
+            $currentDate = $tanggalMulai->copy()->startOfMonth();
+
+            // dikurangi 1 bulan hanya sekali
+            if ($first) {
+                $currentDate->subMonth();
+                $first = false;
+            }
+
+            while ($currentDate <= $tanggalSelesai) {
+                if ($currentDate->year == $tahun && $currentDate >= $tanggalMulai && bccomp($nilaiSisa, "-1", 8) === 1) {
+
+                    if ($currentDate->month == $tanggalMulai->month && $currentDate->year == $tanggalMulai->year) {
+                        $penyusutan->keterangan = $penyusutan->keterangan;
+                        $penambahan_nilai = $penyusutan->penambahan_nilai ?? '';
+                        $penambahan_masa_manfaat = $penyusutan->penambahan_masa_manfaat ?? '';
+                    } else {
+                        $penyusutan->keterangan = '';
+                        $penambahan_nilai = '';
+                        $penambahan_masa_manfaat = '';
+                    }
+
+                    $isNow = ($currentDate->month == $now->month && $currentDate->year == $now->year);
+
+                    // hitung akumulasi pakai bcsub
+                    $akumulasi = bcsub((string)$penyusutan->nilai_perolehan, $nilaiSisa, 8);
+
+                    $data[] = [
+                        'nilai_perolehan'         => $penyusutan->nilai_perolehan,
+                        'bulan'                   => $currentDate->format('m'),
+                        'pengurangan'             => $penguranganPerBulan,
+                        'akumulasi_pengurangan'   => $akumulasi,
+                        'nilai_awal'              => $nilaiBuku,
+                        'nilai_sisa'              => $nilaiSisa,
+                        'penambahan_nilai'        => $penambahan_nilai !== 0 ? $penambahan_nilai : '',
+                        'penambahan_masa_manfaat' => $penambahan_masa_manfaat !== 0 ? $penambahan_masa_manfaat : '',
+                        'keterangan'              => $penyusutan->keterangan,
+                        'is_now'                  => $isNow,
+                    ];
+                }
+
+                $nilaiBuku = $nilaiSisa;
+                $nilaiSisa = bcsub($nilaiSisa, $penguranganPerBulan, 8);
+                $currentDate->addMonth();
+            }
+
+            $arr[$key] = $data;
+        }
+
+        // flatten array
+        $list = [];
+        foreach ($arr as $data) {
+            foreach ($data as $value) {
+                $list[] = $value;
+            }
+        }
+
+        return $list;
+    }
+
+    private function getAkumulasiPenyusutan($id, $date = null)
+    {
+        if (!$date) {
+            $date = Carbon::now();
+        } else {
+            $date = Carbon::parse($date);
+        }
+
+        $penyusutans = DB::pg('asset_penyusutan')->where('asset_id', $id)->get();
+        $tahun = Carbon::create($date)->year;
+
+        $list = $this->formatListPenyusutan($penyusutans, $tahun, $date);
+
+        $collection = collect($list);
+
+        // Mendapatkan elemen terakhir dengan is_now = true
+        $lastIsNowTrue = $collection->where('is_now', true)->last();
+
+        $akumulasiPengurangan = 0;
+        // Memeriksa apakah elemen ditemukan dan mendapatkan akumulasi_pengurangan
+        if ($lastIsNowTrue) {
+            $akumulasiPengurangan = $lastIsNowTrue['akumulasi_pengurangan'];
+        }
+        
+        return $akumulasiPengurangan;
     }
 
 }
