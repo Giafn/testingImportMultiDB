@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Imports\ImportKibA;
 use App\Jobs\ImportKibB;
 use App\Jobs\ImportKibC;
+use App\Jobs\ImportKibD;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
@@ -54,7 +55,16 @@ class MigrateController extends Controller
             $fullPath = storage_path('app/private/' . $path);
             ImportKibC::dispatch($fullPath);
         } else if ($request->kategori === 'D') {
+            $file = $request->file('file');
             
+            $path = $file->storeAs(
+                'imports',
+                uniqid() . '.' . $file->getClientOriginalExtension()
+            );
+
+            // path full
+            $fullPath = storage_path('app/private/' . $path);
+            ImportKibD::dispatch($fullPath);
         }
 
         return redirect()->back()->with('success', 'Data Mulai Di Import Harap Tunggu kami akan kabari lewat Telegram');
