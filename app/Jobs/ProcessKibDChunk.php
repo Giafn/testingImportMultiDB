@@ -500,85 +500,113 @@ class ProcessKibDChunk implements ShouldQueue
                 ->where('asset_id', $idAsset)
                 ->orderByDesc('tanggal_selesai')
                 ->first();
-            
-            $tanggalSelesaiBaru = $customCreatedAt
-                ? Carbon::parse($customCreatedAt)->endOfMonth()
-                : Carbon::now()->endOfMonth();
-    
-            DB::pg('asset_penyusutan')
-                ->where('id', $penyusutanTerakhir->id)
-                ->update([
-                    'tanggal_selesai' => $tanggalSelesaiBaru,
-                    'updated_at'      => now(),
-                ]);
-    
-            $penyusutanTerakhir = DB::pg('asset_penyusutan')
-                ->where('asset_id', $idAsset)
-                ->orderByDesc('tanggal_selesai')
-                ->first();
-            
-            // hitung nilai buku dan masa manfaat dalam bulan yang baru menjadi acuan depresiasi perbulan
-            $tanggalBeli = Carbon::parse($asset->tanggal_pembelian)->endOfMonth();
-            $diff = $tanggalBeli->diffInMonths(Carbon::create($customCreatedAt)->endOfMonth());
 
-            // pastikan semua angka dalam string agar cocok dengan BCMath
-            $akumulasiPenyusutanBulanSebelumnya = bcsub((string)$cekAkumulasi, (string)$penyusutanTerakhir->depresiasi_perbulan, 8);
+            if (
+                Carbon::parse($penyusutanTerakhir->tanggal_mulai)->format('Y-m') ==
+                Carbon::parse($customCreatedAt)->format('Y-m')
+            ) {
+                // deletePenyusutan($penyusutanTerakhir->id);
+                DB::pg('asset_penyusutan')
+                    ->where('id', $penyusutanTerakhir->id)
+                    ->delete();
 
-            $nilaiBukuBulanSebelumnya = bcsub(
-                bcadd((string)$nilaiPerolehan, (string)$totalKapitalisasiAwal, 8),
-                (string)$akumulasiPenyusutanBulanSebelumnya,
-                8
-            );
+                $penambahanNilai = $penambahanNilai + $penyusutanTerakhir->penambahan_nilai;
+                $penambahanMasaManfaat = $penambahanMasaManfaat + $penyusutanTerakhir->penambahan_masa_manfaat;
 
-            $nilaiPerolehanUntukHitungPenyusutanBaru = bcadd(
-                (string)$nilaiBukuBulanSebelumnya,
-                (string)$penambahanNilai,
-                8
-            );
+                $penyusutanTerakhir = DB::pg('asset_penyusutan')
+                    ->where('asset_id', $idAsset)
+                    ->orderByDesc('tanggal_selesai')
+                    ->first();
 
-            $TotalMasaManfaat = bcadd((string)$penyusutanTerakhir->masa_manfaat, (string)$penambahanMasaManfaat, 8);
-            $sisaMasaManfaat  = bcsub((string)$TotalMasaManfaat, (string)$diff, 8);
-            $sisaMasaManfaat  = (string)round((float)$sisaMasaManfaat);
-
-            // bagi dengan presisi tinggi
-            $depresiasiPerbulan = $sisaMasaManfaat > 0
-                ? bcdiv((string)$nilaiPerolehanUntukHitungPenyusutanBaru, (string)$sisaMasaManfaat, 8)
-                : 0;
-
-
-            $akumulasiPenyusutan = bcadd((string)$akumulasiPenyusutanBulanSebelumnya, (string)$depresiasiPerbulan, 8);
-
-            $nilaiBukuBaru = bcsub(
-                bcadd((string)$nilaiPerolehan, (string)$totalKapitalisasi, 8),
-                (string)$akumulasiPenyusutan,
-                8
-            );
-
-            $cek = $nilaiBukuBaru + $penambahanNilai;
-            if ($cek > 0) {
-                $masaManfaat = $asset->masa_manfaat;
-                $sisaMasaManfaat = $masaManfaat - $diff;
-    
-                $tanggalMulai = $customCreatedAt ? Carbon::parse($customCreatedAt)->startOfMonth() : Carbon::now()->startOfMonth();
-                $tanggalSelesai = $customCreatedAt ? Carbon::parse($customCreatedAt)->addMonths($sisaMasaManfaat)->endOfMonth() : Carbon::now()->addMonths($sisaMasaManfaat)->endOfMonth();
-        
-                DB::pg('asset_penyusutan')->insertGetId([
-                    'asset_id'                => $idAsset,
-                    'nilai_buku'              => $nilaiBukuBaru,
-                    'depresiasi_perbulan'     => $depresiasiPerbulan,
-                    'masa_manfaat'            => (int) $masaManfaat,
-                    'tanggal_mulai'           => $tanggalMulai,
-                    'tanggal_selesai'         => $tanggalSelesai,
-                    'penambahan_nilai'        => $penambahanNilai,
-                    'penambahan_masa_manfaat' => $penambahanMasaManfaat,
-                    'nilai_perolehan'         => $penyusutanTerakhir->nilai_perolehan + $penambahanNilai,
-                    'keterangan'              => $keterangan,
-                    'jenis_asset'             => $asset->kode_jenis,
-                    'type_asset'              => $asset->kode_kelompok == 3 ? 'asset_tetap' : 'asset_lainnya',
-                    'created_at'              => now(),
-                    'updated_at'              => now(),
-                ]);
             }
+
+            if (!$penyusutanTerakhir) {
+                $this->createPenyusutan($idAsset, $keterangan, $customCreatedAt);
+                $penyusutanTerakhir = DB::pg('asset_penyusutan')
+                    ->where('asset_id', $idAsset)
+                    ->orderByDesc('tanggal_selesai')
+                    ->first();
+            } else {
+                $tanggalSelesaiBaru = $customCreatedAt
+                    ? Carbon::parse($customCreatedAt)->endOfMonth()
+                    : Carbon::now()->endOfMonth();
+        
+                DB::pg('asset_penyusutan')
+                    ->where('id', $penyusutanTerakhir->id)
+                    ->update([
+                        'tanggal_selesai' => $tanggalSelesaiBaru,
+                        'updated_at'      => now(),
+                    ]);
+        
+                $penyusutanTerakhir = DB::pg('asset_penyusutan')
+                    ->where('asset_id', $idAsset)
+                    ->orderByDesc('tanggal_selesai')
+                    ->first();
+                
+                // hitung nilai buku dan masa manfaat dalam bulan yang baru menjadi acuan depresiasi perbulan
+                $tanggalBeli = Carbon::parse($asset->tanggal_pembelian)->endOfMonth();
+                $diff = $tanggalBeli->diffInMonths(Carbon::create($customCreatedAt)->endOfMonth());
+    
+                // pastikan semua angka dalam string agar cocok dengan BCMath
+                $akumulasiPenyusutanBulanSebelumnya = bcsub((string)$cekAkumulasi, (string)$penyusutanTerakhir->depresiasi_perbulan, 8);
+    
+                $nilaiBukuBulanSebelumnya = bcsub(
+                    bcadd((string)$nilaiPerolehan, (string)$totalKapitalisasiAwal, 8),
+                    (string)$akumulasiPenyusutanBulanSebelumnya,
+                    8
+                );
+    
+                $nilaiPerolehanUntukHitungPenyusutanBaru = bcadd(
+                    (string)$nilaiBukuBulanSebelumnya,
+                    (string)$penambahanNilai,
+                    8
+                );
+    
+                $TotalMasaManfaat = bcadd((string)$penyusutanTerakhir->masa_manfaat, (string)$penambahanMasaManfaat, 8);
+                $sisaMasaManfaat  = bcsub((string)$TotalMasaManfaat, (string)$diff, 8);
+                $sisaMasaManfaat  = (string)round((float)$sisaMasaManfaat);
+    
+                // bagi dengan presisi tinggi
+                $depresiasiPerbulan = $sisaMasaManfaat > 0
+                    ? bcdiv((string)$nilaiPerolehanUntukHitungPenyusutanBaru, (string)$sisaMasaManfaat, 8)
+                    : 0;
+    
+    
+                $akumulasiPenyusutan = bcadd((string)$akumulasiPenyusutanBulanSebelumnya, (string)$depresiasiPerbulan, 8);
+    
+                $nilaiBukuBaru = bcsub(
+                    bcadd((string)$nilaiPerolehan, (string)$totalKapitalisasi, 8),
+                    (string)$akumulasiPenyusutan,
+                    8
+                );
+    
+                $cek = $nilaiBukuBaru + $penambahanNilai;
+                if ($cek > 0) {
+                    $masaManfaat = $asset->masa_manfaat;
+                    $sisaMasaManfaat = $masaManfaat - $diff;
+        
+                    $tanggalMulai = $customCreatedAt ? Carbon::parse($customCreatedAt)->startOfMonth() : Carbon::now()->startOfMonth();
+                    $tanggalSelesai = $customCreatedAt ? Carbon::parse($customCreatedAt)->addMonths($sisaMasaManfaat)->endOfMonth() : Carbon::now()->addMonths($sisaMasaManfaat)->endOfMonth();
+            
+                    DB::pg('asset_penyusutan')->insertGetId([
+                        'asset_id'                => $idAsset,
+                        'nilai_buku'              => $nilaiBukuBaru,
+                        'depresiasi_perbulan'     => $depresiasiPerbulan,
+                        'masa_manfaat'            => (int) $masaManfaat,
+                        'tanggal_mulai'           => $tanggalMulai,
+                        'tanggal_selesai'         => $tanggalSelesai,
+                        'penambahan_nilai'        => $penambahanNilai,
+                        'penambahan_masa_manfaat' => $penambahanMasaManfaat,
+                        'nilai_perolehan'         => $penyusutanTerakhir->nilai_perolehan + $penambahanNilai,
+                        'keterangan'              => $keterangan,
+                        'jenis_asset'             => $asset->kode_jenis,
+                        'type_asset'              => $asset->kode_kelompok == 3 ? 'asset_tetap' : 'asset_lainnya',
+                        'created_at'              => now(),
+                        'updated_at'              => now(),
+                    ]);
+                }   
+            }
+            
             $db->commit();
         } catch (\Exception $e) {
             $db->rollBack();
