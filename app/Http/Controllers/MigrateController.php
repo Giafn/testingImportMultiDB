@@ -6,6 +6,7 @@ use App\Imports\ImportKibA;
 use App\Jobs\ImportKibB;
 use App\Jobs\ImportKibC;
 use App\Jobs\ImportKibD;
+use App\Jobs\ImportKibE;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
@@ -65,6 +66,17 @@ class MigrateController extends Controller
             // path full
             $fullPath = storage_path('app/private/' . $path);
             ImportKibD::dispatch($fullPath);
+        } else if ($request->kategori === 'E') {
+            $file = $request->file('file');
+            
+            $path = $file->storeAs(
+                'imports',
+                uniqid() . '.' . $file->getClientOriginalExtension()
+            );
+
+            // path full
+            $fullPath = storage_path('app/private/' . $path);
+            ImportKibE::dispatch($fullPath);
         }
 
         return redirect()->back()->with('success', 'Data Mulai Di Import Harap Tunggu kami akan kabari lewat Telegram');
