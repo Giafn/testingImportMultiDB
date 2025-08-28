@@ -12,7 +12,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
-class ProcessKibBChunk implements ShouldQueue
+class ProcessKibFChunk implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -36,25 +36,26 @@ class ProcessKibBChunk implements ShouldQueue
                 if ($firstNumberRow === null) {
                     $firstNumberRow = $cells[0];
                 }
+                $lastNumberRow = $cells[0];
+                
                 $data = $this->formatData($cells);
                 if ($data) {
                     $this->storeData($data);
                 }
-                $lastNumberRow = $cells[0];
             }
             $db->commit();
         } catch (\Exception $e) {
             $db->rollBack();
             Http::post('https://n8n.giafn.my.id/webhook/success-import', [
-                'status' => 'error',
-                'message' => $e->getMessage()
+                'status' => 'success',
+                'message' => 'error : ' . $e->getMessage()
             ]);
             throw $e;
         }
 
         Http::post('https://n8n.giafn.my.id/webhook/success-import', [
             'status' => 'success',
-            'message' => 'Import Chunk KIB B selesai ' . $firstNumberRow . ' sampai ' . $lastNumberRow
+            'message' => 'Import Chunk KIB F selesai ' . $firstNumberRow . ' sampai ' . $lastNumberRow
         ]);
     }
 
@@ -116,7 +117,7 @@ class ProcessKibBChunk implements ShouldQueue
         $asset = [
             "asset_dokumen_id" => $documentId,
             "status" => 3,
-            "jenis_asset_id" => 2,
+            "jenis_asset_id" => 6,
             "urusan_id" => $urusan->id,
             "bidang_id" => $bidang->id,
             "unit_id" => $unit->id,
@@ -150,7 +151,7 @@ class ProcessKibBChunk implements ShouldQueue
             "deleted_by" => null,
             "created_at" => $mapped['tanggal_perolehan'],
             "updated_at" => null,
-            "masa_manfaat" => $mapped['masa_manfaat'],
+            "masa_manfaat" => null,
             "created_by" => null,
             "kapitalisasi" => null,
             "is_ditemukan" => false,
@@ -170,47 +171,34 @@ class ProcessKibBChunk implements ShouldQueue
         
         $assetId = DB::pg('assets')->insertGetId($asset);
         $asset['id'] = $assetId;
-
-        $bahanId = DB::pg('master_bahan_aset')->where('nama', $mapped['bahan'])->first();
-        if (empty($bahanId)) {
-            $bahan = [
-                "nama" => $mapped['bahan'],
-                "is_permanent" => 0
-            ];
-            $bahanId = DB::pg('master_bahan_aset')->insertGetId($bahan);
-        } else {
-            $bahanId = $bahanId->id;
-        }
     
         // insert detail asset
         $detailAsset = [
             "assets_id" => $assetId,
-            "masa_manfaat" => $mapped['masa_manfaat'],
-            "sisa_masa_manfaat" => null,
-            "merek_tipe" => $mapped['merk'] . '/' . $mapped['type'],
-            "nomor_polisi" => $mapped['polisi'],
-            "nomor_bpkb" => $mapped['bpkb'],
-            "nama_pemilik" => null,
-            "tipe_kendaraan" => null,
-            "jenis_kendaraan" => null,
-            "model_kendaraan" => null,
-            "tahun_pembuatan" => null,
-            "isi_silinder" => $mapped['cc'],
-            "nomor_rangka_nik_vin" => $mapped['rangka'],
-            "nomor_mesin" => $mapped['mesin'],
-            "warna" => null,
-            "warna_tnkb" => null,
-            "deleted_at" => null,
-            "deleted_by" => null,
-            "created_at" => null,
+            "titik_kordinat" => null,
+            "nomor_dokumen_kdp" => null,
+            "tanggal_dokumen_kdp" => $mapped['tanggal_dokumen_kdp'],
+            "nomor_dokumen_laporan" => null,
+            "tanggal_dokumen_laporan" => $mapped['tanggal_dokumen_laporan'],
+            "nama_dokumen_pendukung" => null,
+            "nomor_dokumen_pendukung" => null,
+            "tanggal_dokumen_pendukung" => null,
+            "seterusnya_dokumen_pendukung" => null,
+            "created_at" => $mapped['tanggal_perolehan'],
             "updated_at" => null,
-            "bahan_kendaraan" => $bahanId,
+            "luas" => null,
+            "status_tanah" => null,
+            "jumlah_lantai" => $mapped['bertingkat'] == "Bertingkat" ? 2 : 1,
+            "panjang" => null,
+            "lebar" => null,
         ];
     
-        DB::pg('asset_detail_peralatan')->insertGetId($detailAsset);
+        DB::pg('asset_detail_konstruksi')->insertGetId($detailAsset);
+
+        $detailAwal = $this->getDetailAsset($assetId, $mapped, $mapped['jenis_asset_id']);
     
         // inset AssetHistory
-        $assetHistory = [
+        $historyPengadaan = [
             "asset_id" => $assetId,
             "type" => 'pengadaan',
             "json_before" => json_encode([]), //$asset,
@@ -228,11 +216,68 @@ class ProcessKibBChunk implements ShouldQueue
             "asset_reklasifikasi_id" => null,
             "upb_id" => $upb->id,
             "keterangan" => "Pengadaan Migrasi PM",
-            "details" => json_encode($detailAsset),
+            "details" => json_encode($detailAwal),
             "status" => "pembukuan",
         ];
     
-        DB::pg('asset_history')->insertGetId($assetHistory);
+        DB::pg('asset_history')->insertGetId($historyPengadaan);
+
+        $historyReklasifikasi = [
+            "asset_id" => $assetId,
+            "type" => 'reklasifikasi',
+            "json_before" => json_encode($asset), //$asset,
+            "json_after" => json_encode($asset), //$asset,
+            "created_by" => 1,
+            "created_at" => $mapped['tanggal_perolehan'] . ' 00:01:00',
+            "updated_at" => null,
+            "penambahan" => 0,
+            "pengurangan" => null,
+            "sisa" => $mapped['harga'],
+            "upb_before_id" => null,
+            "upb_after_id" => null,
+            "jenis_before_id" => $mapped['jenis_asset_id'],
+            "jenis_after_id" => 6,
+            "asset_reklasifikasi_id" => null,
+            "upb_id" => $upb->id,
+            "keterangan" => "Reklasifikasi penggolongan & kodefikasi ke aset",
+            "details" => json_encode($detailAwal),
+            "status" => "pembukuan",
+        ];
+    
+        $assetHistoryId = DB::pg('asset_history')->insertGetId($historyReklasifikasi);
+    
+        $assetReklasifikasi = [
+            "asset_id" => $assetId,
+            "history_id" => $assetHistoryId,
+            "penyebab_reklasifikasi" => 1,
+            "nama_dokumen_sumber" => "",
+            "nomor_dokumen_sumber" => "",
+            "tanggal_dokumen_sumber" => $mapped['tanggal_dokumen_kdp'],
+            "file_dokumen_sumber" => null,
+            "nama_dokumen_pendukung" => "",
+            "nomor_dokumen_pendukung" => "",
+            "tanggal_dokumen_pendukung" => null,
+            "file_dokumen_pendukung" => null,
+            "spesifikasi_dokumen_pendukung" => null,
+            "created_at" => $mapped['tanggal_perolehan'] . ' 00:01:00',
+            "updated_at" => null,
+            "keterangan" => $mapped['keterangan'],
+            "pilihan_reklasifikasi" => 2,
+            "data" => json_encode([
+                "from_asset" => $assetId,
+                "to_sub_sub_rincian_id" => $asset['sub_sub_rincian_id'],
+                "from_jenis_asset" => $asset['jenis_asset_id'],
+                "to_jenis_asset" => "6",
+                "harga" => $mapped['harga'],
+            ]),
+        ];
+
+        $assetReklasifikasiId = DB::pg('asset_reklasifikasi')->insertGetId($assetReklasifikasi);
+
+        // update history
+        DB::pg('asset_history')->where('id', $assetHistoryId)->update([
+            'asset_reklasifikasi_id' => $assetReklasifikasiId
+        ]);
         
         // insert asset snapshot
         $assetSnapshot = [
@@ -258,46 +303,57 @@ class ProcessKibBChunk implements ShouldQueue
         ];
     
         DB::pg('asset_snapshots')->insert($assetSnapshot);
-        $this->createPenyusutan($assetId, "Inisiasi Penyusutan Migrasi PM", $mapped['tanggal_perolehan']);
     }
 
     private function formatData($cells) 
     {
+        $jenisAssetId = explode(".", $cells[17])[2] ?? null;
+        if ($jenisAssetId == "1") {
+            $kodeBarang = "1.3.6.1.1.1.1";
+        } else if ($jenisAssetId == "2") {
+            $kodeBarang = "1.3.6.1.1.1.2";
+        } else if ($jenisAssetId == "3") {
+            $kodeBarang = "1.3.6.1.1.1.3";
+        } else if ($jenisAssetId == "4") {
+            $kodeBarang = "1.3.6.1.1.1.4";
+        } else if ($jenisAssetId == "5") {
+            $kodeBarang = "1.3.6.1.1.1.5";
+        }
+
         try {
             return [
                     'no' => $cells[0] ?? null,
                     'id_barang' => $cells[1] ?? null,
+                    'jenis_asset_id' => explode(".", $cells[17])[2] ?? null,
                     'tahun' => $cells[2] ?? null,
                     'kode_skpd' => $cells[7] ?? null,
                     'nama_skpd' => $cells[8] ?? null,
-                    'kelompok_barang' => $cells[14] ?? null,
-                    'kode_barang' => $cells[17] ?? null,
+                    'kelompok_barang' => $cells[15] ?? null,
+                    'kode_barang_awal' => $cells[17] ?? null,
+                    'kode_barang' => $kodeBarang,
                     'jenis_barang' => $cells[18] ?? null,
                     'no_register' => $cells[19] ?? null,
-                    'merk' => $cells[20] ?? null,
-                    'type' => $cells[21] ?? null,
-                    'cc' => $cells[22] ?? null,
-                    'bahan' => $cells[23] ?? null,
+                    'titik_kordinat' => null,
+                    'nomor_dokumen_kdp' => null,
+                    'tanggal_dokumen_kdp' => $this->formatDate($cells[24] ?? null),
+                    'nomor_dokumen_laporan' => null,
+                    'tanggal_dokumen_laporan' => $this->formatDate($cells[24] ?? null),
+                    'nama_dokumen_pendukung' => null,
+                    'nomor_dokumen_pendukung' => null,
+                    'tanggal_dokumen_pendukung' => null,
+                    'seterusnya_dokumen_pendukung' => null,
+                    'luas'=> null,
+                    'status_tanah' => null,
+                    'jumlah_lantai' => null,
+                    'panjang' => null,
+                    'lebar' => null,
+                    'beton' => $cells[21] ?? null,
+                    'bertingkat' => $cells[20] ?? null,
+                    'harga' => $cells[28] ?? null,
                     'tanggal_perolehan' => $this->formatDate($cells[24] ?? null),
-                    'pabrik' => $cells[25] ?? null,
-                    'rangka' => $cells[26] ?? null,
-                    'mesin' => $cells[27] ?? null,
-                    'polisi' => $cells[28] ?? null,
-                    'bpkb' => $cells[29] ?? null,
-                    'asal_usul' => $cells[30] ?? null,
-                    'kondisi' => $cells[31] ?? null,
-                    'masa_manfaat' => $cells[32] ?? null,
-                    'harga' => $cells[33] ?? null,
-                    'keterangan' => $cells[34] ?? null,
-                    'akumulasi_1_januari_2023' => $cells[35] ?? null,
-                    'penyusutan_semester_1' => $cells[36] ?? null,
-                    'penyusutan_semester_2' => $cells[37] ?? null,
-                    'akumulasi_31_desember_2023' => $cells[38] ?? null,
-                    'nilai_buku' => $cells[39] ?? null,
-                    'sisa_masa_manfaat' => $cells[40] ?? null,
+                    'keterangan' => $cells[29] ?? null,
                 ];
         } catch (\Exception $e) {
-            dd($e);
             return null;
         }
     }
@@ -358,60 +414,107 @@ class ProcessKibBChunk implements ShouldQueue
             ];
         }
     }
-
-    private function createPenyusutan($idAsset, $keterangan, $customCreatedAt = null)
+    
+    private function getDetailAsset($assetId, $mapped, $jenisAssetId)
     {
-        $asset = DB::pg('assets')
-            ->join('sub_sub_rincian_objek_assets', 'sub_sub_rincian_objek_assets.id', '=', 'assets.sub_sub_rincian_id')
-            ->where('assets.id', $idAsset)
-            ->whereIn('jenis_asset_id', [2, 3, 4])
-            ->select(
-                'assets.*',
-                'sub_sub_rincian_objek_assets.kode_kelompok',
-                'sub_sub_rincian_objek_assets.kode_jenis'
-            )
-            ->first();
-
-        if (!$asset || $asset->masa_manfaat <= 0) {
+        if ($jenisAssetId == 1) {
             return [
-                'status' => 'success',
-                'message' => 'Data asset tidak ditemukan'
+                "assets_id" => $assetId,
+                "luas_tanah" => null,
+                "satuan_luas_tanah" => null,
+                "titik_kordinat" => null,
+                "nama_dokumen" => null,
+                "nomor_dokumen" => null,
+                "tanggal_dokumen" => $mapped['tanggal_perolehan'],
+                "nama_kepemilikan_dokumen"  => null,
+                "utara"  => null,
+                "selatan"  => null,
+                "barat"  => null,
+                "timur"  => null,
+                "deleted_at"  => null,
+                "deleted_by"  => null,
+                "created_at"  => $mapped['tanggal_perolehan'],
+                "updated_at"  => null,
             ];
+        } else if ($jenisAssetId == 2) {
+            return [
+                "assets_id" => $assetId,
+                "masa_manfaat" => null,
+                "sisa_masa_manfaat" => null,
+                "merek_tipe" => null,
+                "nomor_polisi" => null,
+                "nomor_bpkb" => null,
+                "nama_pemilik" => null,
+                "tipe_kendaraan" => null,
+                "jenis_kendaraan" => null,
+                "model_kendaraan" => null,
+                "tahun_pembuatan" => null,
+                "isi_silinder" => null,
+                "nomor_rangka_nik_vin" => null,
+                "nomor_mesin" => null,
+                "warna" => null,
+                "warna_tnkb" => null,
+                "deleted_at" => null,
+                "deleted_by" => null,
+                "created_at" => $mapped['tanggal_perolehan'],
+                "updated_at" => null,
+                "bahan_kendaraan" => null,
+            ];
+        } else if ($jenisAssetId == 3) {
+            return [
+                "assets_id" => $assetId,
+                "masa_manfaat" => null,
+                "sisa_masa_manfaat" => null,
+                "jumlah_lantai" => $mapped['bertingkat'] == "Betingkat" ? 2 : 1,
+                "luas_gedung" => null,
+                "titik_kordinat" => null,
+                "status_kepemilikan" => null,
+                "kode_barang_tanah" => null,
+                "kode_lokasi_tanah" => null,
+                "kode_register_tanah" => null,
+                "deleted_at" => null,
+                "deleted_by" => null,
+                "created_at" => $mapped['tanggal_perolehan'],
+                "updated_at" => null,
+            ];
+        } else if ($jenisAssetId == 4) {
+            return [
+                "assets_id" => $assetId,
+                "masa_manfaat" => null,
+                "sisa_masa_manfaat" => null,
+                "jenis_perkerasan_barang" => $mapped['beton'] == "Beton" ? 1 : 2,
+                "jenis_bahan_struktur_jembatan" => null,
+                "nomor_ruas_jalan" => null,
+                "nomor_jaringan_irigasi" => null,
+                "titik_kordinat" => null,
+                "deleted_at" => null,
+                "deleted_by" => null,
+                "created_at" => $mapped['tanggal_perolehan'],
+                "updated_at" => null,
+                "luas_jalan" => null,
+                "panjang" => null,
+                "lebar" => null,
+            ];
+        } else if ($jenisAssetId == 5) {
+            return [
+                "assets_id" => $assetId,
+                "masa_manfaat" => null,
+                "sisa_masa_manfaat" => null,
+                "titik_kordinat" => null,
+                "deleted_at" => null,
+                "deleted_by" => null,
+                "created_at" => $mapped['tanggal_perolehan'],
+                "updated_at" => null,
+                "judul" => null,
+                "spesifikasi" => null,
+                "asal_daerah" => null,
+                "pencipta" => null,
+                "bahan" => null,
+                "jenis" => null,
+                "ukuran" => null,
+            ];
+        } else {
+            return [];
         }
-
-        $masaManfaat = $asset->masa_manfaat;
-        $depresiasiPerbulan = $asset->jumlah_harga / $masaManfaat;
-        $nilaiBuku = $asset->jumlah_harga;
-        $tanggalSelesai = Carbon::createFromDate($asset->tanggal_pembelian)
-            ->addMonths($masaManfaat)
-            ->endOfMonth();
-
-        // cek jika tidak ada penyusutan sebelumnya
-        $cek = DB::pg('asset_penyusutan')->where('asset_id', $idAsset)->count();
-        if ($cek <= 0) {
-            DB::pg('asset_penyusutan')->insert([
-                'asset_id'           => $idAsset,
-                'nilai_buku'         => $nilaiBuku,
-                'depresiasi_perbulan'=> $depresiasiPerbulan,
-                'masa_manfaat'       => $masaManfaat,
-                'tanggal_mulai'      => Carbon::createFromDate($asset->tanggal_pembelian)->startOfMonth(),
-                'tanggal_selesai'    => $tanggalSelesai,
-                'nilai_perolehan'    => (int)$asset->jumlah_harga,
-                'keterangan'         => $keterangan,
-                'jenis_asset'        => $asset->kode_jenis,
-                'type_asset'         => $asset->kode_kelompok == 3 ? 'asset_tetap' : 'asset_lainnya',
-                'created_at'         => $customCreatedAt 
-                                        ? Carbon::parse($customCreatedAt)->startOfMonth()
-                                        : now(),
-                'updated_at'         => $customCreatedAt 
-                                        ? Carbon::parse($customCreatedAt)->startOfMonth()
-                                        : now(),
-            ]);
-        }
-
-        return [
-            'status' => 'success',
-            'message' => 'Berhasil menambah penyusutan'
-        ];
     }
 }

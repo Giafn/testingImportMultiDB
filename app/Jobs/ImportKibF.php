@@ -12,7 +12,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
-class ImportKibE implements ShouldQueue
+class ImportKibF implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -51,7 +51,7 @@ class ImportKibE implements ShouldQueue
                 $chunk[] = $cells;
 
                 if (count($chunk) >= $chunkSize) {
-                    ProcessKibEChunk::dispatch($chunk);
+                    ProcessKibFChunk::dispatch($chunk);
                     $chunk = []; // reset
                 }
             }
@@ -59,14 +59,14 @@ class ImportKibE implements ShouldQueue
 
         // sisa baris terakhir
         if (count($chunk) > 0) {
-            ProcessKibEChunk::dispatch($chunk);
+            ProcessKibFChunk::dispatch($chunk);
         }
 
         $reader->close();
 
         Http::post('https://n8n.giafn.my.id/webhook/success-import', [
             'status' => 'success',
-            'message' => 'Import KIB E Dimulai',
+            'message' => 'Import KIB F Dimulai',
         ]);
 
         unlink($this->filePath);

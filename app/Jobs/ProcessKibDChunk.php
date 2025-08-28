@@ -79,7 +79,7 @@ class ProcessKibDChunk implements ShouldQueue
 
         Http::post('https://n8n.giafn.my.id/webhook/success-import', [
             'status' => 'success',
-            'message' => 'Import Chunk KIB B selesai ' . $firstNumberRow . ' sampai ' . $lastNumberRow
+            'message' => 'Import Chunk KIB D selesai ' . $firstNumberRow . ' sampai ' . $lastNumberRow
         ]);
     }
 

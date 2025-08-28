@@ -152,10 +152,15 @@
         </form>
       </div>
       <div class="tab-pane fade" id="kibF" role="tabpanel">
-        <div class="drop-zone" id="dropF">
-          <p>📂 Tarik & letakkan file Excel KIB F di sini atau klik untuk memilih</p>
-          <input type="file" name="fileF" hidden accept=".xlsx,.xls">
-        </div>
+        <form action="{{ route('import') }}" method="POST" enctype="multipart/form-data">
+            @csrf
+            <div class="drop-zone" id="dropF">
+              <p>📂 Tarik & letakkan file Excel KIB F di sini atau klik untuk memilih</p>
+              <input type="file" name="file" hidden accept=".xlsx,.xls">
+            </div>
+            <input type="hidden" name="kategori" value="F">
+            <button type="submit" class="btn btn-primary mt-3">Import</button>
+        </form>
       </div>
     </div>
   </div>
