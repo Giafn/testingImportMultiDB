@@ -366,7 +366,6 @@ class ProcessKibEChunk implements ShouldQueue
 
         $masaManfaat = $asset->masa_manfaat;
         $depresiasiPerbulan = $asset->jumlah_harga / $masaManfaat;
-        dd($depresiasiPerbulan, $masaManfaat, $asset->jumlah_harga);
         $nilaiBuku = $asset->jumlah_harga;
         $tanggalSelesai = Carbon::createFromDate($asset->tanggal_pembelian)
             ->addMonths($masaManfaat)
