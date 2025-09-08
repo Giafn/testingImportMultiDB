@@ -34,7 +34,7 @@ class ImportKibE implements ShouldQueue
         $reader = new Reader();
         $reader->open($this->filePath);
 
-        $chunkSize = 2000; // jumlah baris per chunk
+        $chunkSize = 10000; // jumlah baris per chunk
         $chunk = [];
         $rowIndex = 0;
 
@@ -42,24 +42,30 @@ class ImportKibE implements ShouldQueue
             foreach ($sheet->getRowIterator() as $row) {
                 $rowIndex++;
 
-                // skip baris 1–7
                 if ($rowIndex < 5) {
                     continue;
                 }
 
                 $cells = $row->toArray();
+
+                // skip kalau baris kosong
+                if (empty(array_filter($cells))) {
+                    continue;
+                }
+
                 $chunk[] = $cells;
 
                 if (count($chunk) >= $chunkSize) {
-                    ProcessKibEChunk::dispatch($chunk);
-                    $chunk = []; // reset
+                    // clone array sebelum dispatch
+                    ProcessKibEChunk::dispatch(collect($chunk)->toArray());
+                    $chunk = [];
                 }
             }
         }
 
-        // sisa baris terakhir
-        if (count($chunk) > 0) {
-            ProcessKibEChunk::dispatch($chunk);
+        // sisa terakhir
+        if (!empty($chunk)) {
+            ProcessKibEChunk::dispatch(collect($chunk)->toArray());
         }
 
         $reader->close();
@@ -68,7 +74,5 @@ class ImportKibE implements ShouldQueue
             'status' => 'success',
             'message' => 'Import KIB E Dimulai',
         ]);
-
-        unlink($this->filePath);
     }
 }
