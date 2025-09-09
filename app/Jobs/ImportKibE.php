@@ -64,7 +64,7 @@ class ImportKibE implements ShouldQueue
         $reader = new Reader();
         $reader->open($this->filePath);
 
-        $chunkSize = 10000; // jumlah baris per chunk
+        $chunkSize = 1000; // jumlah baris per chunk
         $chunk = [];
         $rowIndex = 0;
 
