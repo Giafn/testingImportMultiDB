@@ -45,6 +45,7 @@ class ProcessKibEChunk implements ShouldQueue
             $db->commit();
         } catch (\Exception $e) {
             // $db->rollBack();
+            dd($e);
             Http::post('https://n8n.giafn.my.id/webhook/success-import', [
                 'status' => 'error',
                 'message' => 'error : ' . $e->getMessage()
