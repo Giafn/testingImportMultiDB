@@ -37,8 +37,11 @@ class ProcessKibEChunk implements ShouldQueue
                     $firstNumberRow = $cells[0];
                 }
                 $data = $this->formatData($cells);
+
                 if ($data) {
                     $this->storeData($data);
+                } else {
+                    throw new \Exception("data kosong pada row: " . json_encode($cells));
                 }
                 $lastNumberRow = $cells[0];
             }
