@@ -282,7 +282,7 @@ class ProcessKibEChunk implements ShouldQueue
                     'ukuran' => $cells[22] == "NULL" || $cells[22] == "" ? null : $cells[22],
                     'asal_usul' => $cells[24] ?? null,
                     'kondisi' => $cells[25] ?? null,
-                    'masa_manfaat' => $cells[34] == '' ? null : (int) $cells[34],
+                    'masa_manfaat' => isset($cells[34]) ? ($cells[34] == '' ? null : (int) $cells[34]) : null,
                     'harga' => $cells[26] ?? null,
                     'tanggal_perolehan' => $this->formatDate($cells[23] ?? null),
                     'keterangan' => $cells[27] ?? null,
