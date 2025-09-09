@@ -288,7 +288,7 @@ class ProcessKibEChunk implements ShouldQueue
                     'keterangan' => $cells[27] ?? null,
                 ];
         } catch (\Exception $e) {
-            return null;
+            throw $e;
         }
     }
 
