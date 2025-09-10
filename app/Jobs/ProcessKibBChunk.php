@@ -305,23 +305,38 @@ class ProcessKibBChunk implements ShouldQueue
 
     private function formatDate($value): ?string
     {
-        if (empty($value)) {
+        if ($value === null || $value === '') {
             return null;
         }
 
+        // Sudah object DateTime/DateTimeImmutable
         if ($value instanceof \DateTimeInterface) {
-            // sudah object DateTime
             return $value->format('Y-m-d');
         }
 
-        if (is_numeric($value)) {
-            // Excel date serial number
-            return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($value)->format('Y-m-d');
+        // Array dari database JSON ({"date": "...", "timezone_type":3, ...})
+        if (is_array($value) && isset($value['date'])) {
+            try {
+                return (new \DateTimeImmutable($value['date']))->format('Y-m-d');
+            } catch (\Exception $e) {
+                return null;
+            }
         }
 
+        // Excel date serial number
+        if (is_numeric($value)) {
+            try {
+                return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $value)
+                    ->format('Y-m-d');
+            } catch (\Exception $e) {
+                return null;
+            }
+        }
+
+        // String yang bisa diparse
         if (is_string($value)) {
-            // coba parse string
-            return date('Y-m-d', strtotime($value));
+            $timestamp = strtotime($value);
+            return $timestamp ? date('Y-m-d', $timestamp) : null;
         }
 
         return null;
