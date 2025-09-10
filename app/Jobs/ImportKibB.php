@@ -105,7 +105,7 @@ class ImportKibB implements ShouldQueue
 
     public function failed(\Throwable $exception)
     {
-        Http::post('https://n8n.giafn.my.id/webhook/failure-import', [
+        Http::post('https://n8n.giafn.my.id/webhook/success-import', [
             'status' => 'error',
             'message' => $exception->getMessage()
         ]);
