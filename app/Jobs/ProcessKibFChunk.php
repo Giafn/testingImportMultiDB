@@ -167,6 +167,7 @@ class ProcessKibFChunk implements ShouldQueue
             "master_pembayaran_id" => 1,
             "ukuran_aset" => null,
             "harga_per_ukuran" => null,
+            "old_id_pemda" => $mapped['id_barang'],
         ];
         
         $assetId = DB::pg('assets')->insertGetId($asset);

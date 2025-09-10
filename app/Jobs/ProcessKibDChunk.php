@@ -183,7 +183,7 @@ class ProcessKibDChunk implements ShouldQueue
             "nama_hibah" => null,
             "no_bast" => null,
             "hibah_date" => null,
-            "cara_perolehan_id" => 1,
+            "cara_perolehan_id" => $mapped['asal_usul'] == "Hibah" ? 2 : 1,
             "sumber_dana_id" => 1,
             "nilai_permeter" => null,
             "metode_pengadaan_id" => 1,
@@ -191,6 +191,7 @@ class ProcessKibDChunk implements ShouldQueue
             "master_pembayaran_id" => 1,
             "ukuran_aset" => null,
             "harga_per_ukuran" => null,
+            "old_id_pemda" => $mapped['id_barang'],
         ];
         
         $assetId = DB::pg('assets')->insertGetId($asset);

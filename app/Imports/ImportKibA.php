@@ -186,6 +186,7 @@ class ImportKibA implements ToCollection, WithStartRow, WithChunkReading, Should
                     "master_pembayaran_id" => 1,
                     "ukuran_aset" => null,
                     "harga_per_ukuran" => null,
+                    "old_id_pemda" => $mapped['id_pemda'],
                 ];
                 
                 $assetId = DB::pg('assets')->insertGetId($asset);
