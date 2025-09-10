@@ -182,13 +182,24 @@ class ProcessKibBChunk implements ShouldQueue
         } else {
             $bahanId = $bahanId->id;
         }
+
+        // cek merek dan type apakah string
+        if (!is_string($mapped['merk'])) {
+            $mapped['merk'] = "-";
+        }
+
+        if (!is_string($mapped['type'])) {
+            $mapped['type'] = "-";
+        }
     
-        // insert detail asset
+        $merek = str_replace('/', ',', $mapped['merk']);
+        $type = str_replace('/', ',', $mapped['type']);
+
         $detailAsset = [
             "assets_id" => $assetId,
             "masa_manfaat" => $mapped['masa_manfaat'],
             "sisa_masa_manfaat" => null,
-            "merek_tipe" => $mapped['merk'] . '/' . $mapped['type'],
+            "merek_tipe" => $merek . '/' . $type,
             "nomor_polisi" => $mapped['polisi'],
             "nomor_bpkb" => $mapped['bpkb'],
             "nama_pemilik" => null,
