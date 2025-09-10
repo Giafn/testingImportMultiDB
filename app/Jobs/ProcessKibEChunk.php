@@ -41,15 +41,13 @@ class ProcessKibEChunk implements ShouldQueue
                 if ($data) {
                     $this->storeData($data);
                 } else {
-                    dd($cells, $data);
                     throw new \Exception("data kosong pada row: " . json_encode($cells));
                 }
                 $lastNumberRow = $cells[0];
             }
             $db->commit();
         } catch (\Exception $e) {
-            // $db->rollBack();
-            dd($e);
+            $db->rollBack();
             Http::post('https://n8n.giafn.my.id/webhook/success-import', [
                 'status' => 'error',
                 'message' => 'error : ' . $e->getMessage()

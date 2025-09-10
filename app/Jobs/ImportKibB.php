@@ -31,6 +31,36 @@ class ImportKibB implements ShouldQueue
      */
     public function handle(): void
     {
+        DB::transaction(function () {
+            // ambil semua asset id sesuai jenis
+            $assetIds = DB::pg('assets')
+                ->where('jenis_asset_id', 5)
+                ->pluck('id');
+
+            if ($assetIds->isEmpty()) {
+                return;
+            }
+
+            // hapus turunan dulu
+            DB::pg('asset_detail_peralatan')->whereIn('assets_id', $assetIds)->delete();
+            DB::pg('asset_history')->whereIn('asset_id', $assetIds)->delete();
+            DB::pg('asset_snapshots')->whereIn('asset_id', $assetIds)->delete();
+            DB::pg('asset_penyusutan')->whereIn('asset_id', $assetIds)->delete();
+
+            // hapus dokumen terkait (opsional, hati2 kalau ada share)
+            $dokumenIds = DB::pg('assets')
+                ->whereIn('id', $assetIds)
+                ->pluck('asset_dokumen_id')
+                ->filter(); // buang null
+
+            if ($dokumenIds->isNotEmpty()) {
+                DB::pg('asset_dokumen')->whereIn('id', $dokumenIds)->delete();
+            }
+
+            // terakhir hapus assets
+            DB::pg('assets')->whereIn('id', $assetIds)->delete();
+        });
+
         $reader = new Reader();
         $reader->open($this->filePath);
 
