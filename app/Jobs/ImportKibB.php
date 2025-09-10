@@ -102,4 +102,12 @@ class ImportKibB implements ShouldQueue
 
         unlink($this->filePath);
     }
+
+    public function failed(\Throwable $exception)
+    {
+        Http::post('https://n8n.giafn.my.id/webhook/failure-import', [
+            'status' => 'error',
+            'message' => $exception->getMessage()
+        ]);
+    }
 }
