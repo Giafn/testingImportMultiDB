@@ -34,7 +34,7 @@ class ImportKibB implements ShouldQueue
         DB::transaction(function () {
             // ambil semua asset id sesuai jenis
             $assetIds = DB::pg('assets')
-                ->where('jenis_asset_id', 5)
+                ->where('jenis_asset_id', 2)
                 ->pluck('id');
 
             if ($assetIds->isEmpty()) {
